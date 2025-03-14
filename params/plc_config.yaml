@@ -1,0 +1,4 @@
+plc_comm_node:
+  ros__parameters:
+    ip: "192.168.8.30"  # IP address
+    port: 502           # port
