@@ -26,16 +26,20 @@ class PlcComm(Node):
         self.loop_thread.start()
         self.mutex = Lock()
 
-        self.connection_timer = self.create_timer(0.2, self.connection_cb)
+        self.connection_timer = self.create_timer(0.25, self.connection_cb)
         self.status_timer = self.create_timer(1.0, self.status_cb)
-        self.releasing_mtrl_box_timer = self.create_timer(0.2, self.releasing_mtrl_box_cb)
-        self.sliding_platform_timer = self.create_timer(0.2, self.sliding_platform_cb)
-        self.sliding_platform_movement_timer = self.create_timer(0.2, self.sliding_platform_movement_cb)
+        self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb)
+        self.sliding_platform_timer = self.create_timer(0.5, self.sliding_platform_cb)
+        self.sliding_platform_movement_timer = self.create_timer(0.5, self.sliding_platform_movement_cb)
+        self.sliding_platform_ready_timer = self.create_timer(0.5, self.sliding_platform_ready_cb)
+        self.elevator_timer = self.create_timer(1.0, self.elevator_cb)
 
         self.status_pub = self.create_publisher(Bool, 'plc_connection', 10)
         self.releasing_mtrl_box_pub = self.create_publisher(Bool, 'releasing_material_box', 10)
         self.sliding_platform_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform', 10)
         self.sliding_platform_movement_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_movement', 10)
+        self.sliding_platform_ready_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_ready', 10)
+        self.elevator_pub = self.create_publisher(Bool, 'elevator', 10)
 
         self.read_srv = self.create_service(
             ReadRegister,
@@ -57,8 +61,9 @@ class PlcComm(Node):
         self.get_logger().info("Started the event loop.")
 
     async def create_and_connect_client(self):
-        self.cli = Client(host=self.ip, port=self.port)
-        await self.cli.connect()
+        with self.mutex:
+            self.cli = Client(host=self.ip, port=self.port)
+            await self.cli.connect()
         if self.cli is not None and self.cli.connected:
             self.get_logger().info("Connected to Modbus server Successfully")
         else:
@@ -124,6 +129,44 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_movement_pub.publish(msg)
+            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+        except Exception as e:
+            self.get_logger().error(f"Exception: {e}")
+
+    async def sliding_platform_ready_cb(self):
+        req = ReadRegister.Request()
+        req.address = 5301
+        req.count = 14
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        try:
+            result = future.result()
+            if not isinstance(result, ReadHoldingRegistersResponse):
+                raise Exception("result is not ReadHoldingRegistersResponse")
+            if result.isError():
+                raise Exception("result is Error")
+            data = result.registers
+            msg = UInt8MultiArray()
+            msg.data = data
+            self.sliding_platform_ready_pub.publish(msg)
+            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+        except Exception as e:
+            self.get_logger().error(f"Exception: {e}")
+
+    async def elevator_cb(self):
+        req = ReadRegister.Request()
+        req.address = 5030
+        req.count = 1
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        try:
+            result = future.result()
+            if not isinstance(result, ReadHoldingRegistersResponse):
+                raise Exception("result is not ReadHoldingRegistersResponse")
+            if result.isError():
+                raise Exception("result is Error")
+            data = result.registers
+            msg = Bool()
+            msg.data = bool(data[0] == 1)
+            self.elevator_pub.publish(msg)
             self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
