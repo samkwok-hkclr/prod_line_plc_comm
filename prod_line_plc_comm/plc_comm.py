@@ -3,7 +3,8 @@ from threading import Thread, Lock
 import rclpy
 
 from rclpy.node import Node
-from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 
 from pymodbus.client import AsyncModbusTcpClient as Client
 from pymodbus.pdu.register_message import ReadHoldingRegistersResponse, WriteMultipleRegistersResponse
@@ -26,14 +27,13 @@ class PlcComm(Node):
         self.loop_thread.start()
         self.mutex = Lock()
 
-        self.connection_timer = self.create_timer(0.25, self.connection_cb)
-        self.status_timer = self.create_timer(1.0, self.status_cb)
-        self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb)
-        self.sliding_platform_timer = self.create_timer(0.5, self.sliding_platform_cb)
-        self.sliding_platform_movement_timer = self.create_timer(0.5, self.sliding_platform_movement_cb)
-        self.sliding_platform_ready_timer = self.create_timer(0.5, self.sliding_platform_ready_cb)
-        self.elevator_timer = self.create_timer(1.0, self.elevator_cb)
+        # Callback groups
+        srv_ser_read_cbg = MutuallyExclusiveCallbackGroup()
+        srv_ser_write_cbg = MutuallyExclusiveCallbackGroup()
+        normal_timer_cbg = MutuallyExclusiveCallbackGroup()
+        read_timer_cbg = MutuallyExclusiveCallbackGroup()
 
+        # Publishers
         self.status_pub = self.create_publisher(Bool, 'plc_connection', 10)
         self.releasing_mtrl_box_pub = self.create_publisher(Bool, 'releasing_material_box', 10)
         self.sliding_platform_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform', 10)
@@ -41,16 +41,28 @@ class PlcComm(Node):
         self.sliding_platform_ready_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_ready', 10)
         self.elevator_pub = self.create_publisher(Bool, 'elevator', 10)
 
+        # Service Servers
         self.read_srv = self.create_service(
             ReadRegister,
             "read_register",
             self.read_registers_cb,
+            callback_group=srv_ser_read_cbg
         )
         self.write_srv = self.create_service(
             WriteRegister,
             "write_register",
             self.write_registers_cb,
+            callback_group=srv_ser_write_cbg
         )
+
+        # Timers
+        self.connection_timer = self.create_timer(0.1, self.connection_cb, callback_group=normal_timer_cbg)
+        self.status_timer = self.create_timer(1.0, self.status_cb, callback_group=normal_timer_cbg)
+        self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_timer = self.create_timer(0.25, self.sliding_platform_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_movement_timer = self.create_timer(0.5, self.sliding_platform_movement_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_ready_timer = self.create_timer(0.25, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
+        self.elevator_timer = self.create_timer(1.0, self.elevator_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC ModbusTcpClient Node initialized")
 
@@ -63,6 +75,7 @@ class PlcComm(Node):
     async def create_and_connect_client(self):
         with self.mutex:
             self.cli = Client(host=self.ip, port=self.port)
+            self.get_logger().info("Created an AsyncModbusTcpClient Successfully")
             await self.cli.connect()
         if self.cli is not None and self.cli.connected:
             self.get_logger().info("Connected to Modbus server Successfully")
@@ -91,7 +104,7 @@ class PlcComm(Node):
             msg = Bool()
             msg.data = bool(data[0] == 1)
             self.releasing_mtrl_box_pub.publish(msg)
-            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Releasing State]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -110,7 +123,7 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_pub.publish(msg)
-            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -129,7 +142,7 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_movement_pub.publish(msg)
-            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -148,7 +161,7 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_ready_pub.publish(msg)
-            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -167,24 +180,25 @@ class PlcComm(Node):
             msg = Bool()
             msg.data = bool(data[0] == 1)
             self.elevator_pub.publish(msg)
-            self.get_logger().debug(f"Read Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def connection_cb(self):
-        with self.mutex:
-            if self.cli is None or not self.cli.connected:
-                self.get_logger().info(f"Try to connect to {self.ip}:{self.port}")
-                future = asyncio.run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
-                try:
-                    future.result()
-                except Exception as e:
-                    self.get_logger().error(f"Failed to initialize Modbus client: {e}")
-            else:
-                self.get_logger().debug(f"Already connected to {self.ip}:{self.port}")
+    async def connection_cb(self):
+        if self.cli is None or not self.cli.connected:
+            self.get_logger().info(f"Try to connect to {self.ip}:{self.port}")
+            future = asyncio.run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
+            try:
+                self.get_logger().info(f"Waiting the connection result {self.ip}:{self.port}")
+                future.result()
+            except Exception as e:
+                self.get_logger().error(f"Failed to initialize Modbus client: {e}")
+        else:
+            self.get_logger().debug(f"Already connected to {self.ip}:{self.port}")
 
     async def read_registers_cb(self, req, res):
         future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        self.get_logger().info(f"Received a read register request: {req.address}")
         try:
             result = future.result()
             if not isinstance(result, ReadHoldingRegistersResponse):
@@ -202,6 +216,7 @@ class PlcComm(Node):
 
     async def write_registers_cb(self, req, res):
         future = asyncio.run_coroutine_threadsafe(self.async_write_registers(req), self.loop)
+        self.get_logger().info(f"Received a write register request: {req.address}")
         try:
             result = future.result()
             if not isinstance(result, WriteMultipleRegistersResponse):
@@ -255,7 +270,7 @@ async def async_main(args=None):
     try:
         rclpy.init(args=args)
         node = PlcComm()
-        executor = SingleThreadedExecutor()
+        executor = MultiThreadedExecutor()
         executor.add_node(node)
         executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
