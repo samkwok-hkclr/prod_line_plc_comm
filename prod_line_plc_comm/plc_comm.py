@@ -1,3 +1,4 @@
+import sys
 import asyncio
 from threading import Thread, Lock
 import rclpy
@@ -21,7 +22,9 @@ class PlcComm(Node):
         self.ip = self.get_parameter("ip").value
         self.port = self.get_parameter("port").value
 
+        # Modbus TCP Client
         self.cli = None
+
         self.loop = asyncio.new_event_loop()
         self.loop_thread = Thread(target=self.run_loop, daemon=True)
         self.loop_thread.start()
@@ -36,8 +39,8 @@ class PlcComm(Node):
         # Publishers
         self.status_pub = self.create_publisher(Bool, 'plc_connection', 10)
         self.releasing_mtrl_box_pub = self.create_publisher(Bool, 'releasing_material_box', 10)
-        self.sliding_platform_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform', 10)
-        self.sliding_platform_movement_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_movement', 10)
+        self.sliding_platform_curr_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_current', 10)
+        self.sliding_platform_cmd_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_cmd', 10)
         self.sliding_platform_ready_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_ready', 10)
         self.elevator_pub = self.create_publisher(Bool, 'elevator', 10)
 
@@ -59,18 +62,18 @@ class PlcComm(Node):
         self.connection_timer = self.create_timer(0.1, self.connection_cb, callback_group=normal_timer_cbg)
         self.status_timer = self.create_timer(1.0, self.status_cb, callback_group=normal_timer_cbg)
         self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
-        self.sliding_platform_timer = self.create_timer(0.25, self.sliding_platform_cb, callback_group=read_timer_cbg)
-        self.sliding_platform_movement_timer = self.create_timer(0.5, self.sliding_platform_movement_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_curr_timer = self.create_timer(0.25, self.sliding_platform_curr_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_cmd_timer = self.create_timer(0.5, self.sliding_platform_cmd_cb, callback_group=read_timer_cbg)
         self.sliding_platform_ready_timer = self.create_timer(0.25, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
         self.elevator_timer = self.create_timer(1.0, self.elevator_cb, callback_group=read_timer_cbg)
 
-        self.get_logger().info("PLC ModbusTcpClient Node initialized")
+        self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
 
     def run_loop(self):
         """Run the asyncio event loop in a dedicated thread."""
         asyncio.set_event_loop(self.loop)
-        self.loop.run_forever()
         self.get_logger().info("Started the event loop.")
+        self.loop.run_forever()
 
     async def create_and_connect_client(self):
         with self.mutex:
@@ -81,6 +84,19 @@ class PlcComm(Node):
             self.get_logger().info("Connected to Modbus server Successfully")
         else:
             self.get_logger().error("Failed to connect to Modbus server")
+
+    # Timer Callbacks
+    async def connection_cb(self):
+        if self.cli is None or not self.cli.connected:
+            self.get_logger().info(f"Try to connect to {self.ip}:{self.port}")
+            future = asyncio.run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
+            try:
+                self.get_logger().info(f"Waiting the connection result {self.ip}:{self.port}")
+                future.result()
+            except Exception as e:
+                self.get_logger().error(f"Failed to initialize Modbus client: {e}")
+        else:
+            self.get_logger().debug(f"Already connected to {self.ip}:{self.port}")
 
     def status_cb(self):
         is_connected = bool(self.cli and self.cli.connected)
@@ -108,7 +124,7 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def sliding_platform_cb(self):
+    async def sliding_platform_curr_cb(self):
         req = ReadRegister.Request()
         req.address = 5101
         req.count = 14
@@ -122,12 +138,12 @@ class PlcComm(Node):
             data = result.registers
             msg = UInt8MultiArray()
             msg.data = data
-            self.sliding_platform_pub.publish(msg)
+            self.sliding_platform_curr_pub.publish(msg)
             self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def sliding_platform_movement_cb(self):
+    async def sliding_platform_cmd_cb(self):
         req = ReadRegister.Request()
         req.address = 5001
         req.count = 14
@@ -141,7 +157,7 @@ class PlcComm(Node):
             data = result.registers
             msg = UInt8MultiArray()
             msg.data = data
-            self.sliding_platform_movement_pub.publish(msg)
+            self.sliding_platform_cmd_pub.publish(msg)
             self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
@@ -183,18 +199,6 @@ class PlcComm(Node):
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
-
-    async def connection_cb(self):
-        if self.cli is None or not self.cli.connected:
-            self.get_logger().info(f"Try to connect to {self.ip}:{self.port}")
-            future = asyncio.run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
-            try:
-                self.get_logger().info(f"Waiting the connection result {self.ip}:{self.port}")
-                future.result()
-            except Exception as e:
-                self.get_logger().error(f"Failed to initialize Modbus client: {e}")
-        else:
-            self.get_logger().debug(f"Already connected to {self.ip}:{self.port}")
 
     async def read_registers_cb(self, req, res):
         future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
@@ -242,7 +246,7 @@ class PlcComm(Node):
         )
 
     async def async_write_registers(self, req):
-        """Handle read_registers service reqs."""
+        """Handle write_registers service reqs."""
         if not self.cli or not self.cli.connected:
             raise Exception("Modbus client is not connected.")
 
@@ -255,29 +259,37 @@ class PlcComm(Node):
     def destroy_node(self):
         """Clean up resources when the node is destroyed."""
         if self.cli is not None or self.cli.connected:
-            self.get_logger().info("Closing Modbus connection...")
             self.cli.close()
+            self.get_logger().info("Closing Modbus connection...")
+
         if self.loop.is_running():
-            self.get_logger().info("Remove loop successfully")
             self.loop.call_soon_threadsafe(self.loop.stop)
+            self.get_logger().info("Removed loop successfully")
+
         if self.loop_thread is not None:
-            self.get_logger().info("Remove loop thread successfully")
             self.loop_thread.join()
+            self.get_logger().info("Removed loop thread successfully")
+
         super().destroy_node()
 
 
 async def async_main(args=None):
+    rclpy.init(args=args)
     try:
-        rclpy.init(args=args)
         node = PlcComm()
         executor = MultiThreadedExecutor()
         executor.add_node(node)
-        executor.spin()
-    except (KeyboardInterrupt, ExternalShutdownException):
+        try:
+            executor.spin()
+        finally:
+            executor.shutdown()
+            node.destroy_node()
+    except KeyboardInterrupt:
         pass
+    except ExternalShutdownException:
+        sys.exit(1)
     finally:
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 def main():
