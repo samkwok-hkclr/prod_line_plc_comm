@@ -22,6 +22,23 @@ class PlcComm(Node):
         self.ip = self.get_parameter("ip").value
         self.port = self.get_parameter("port").value
 
+        # Requests
+        self.releasing_mtrl_box_req = ReadRegister.Request()
+        self.releasing_mtrl_box_req.address = 5500
+        self.releasing_mtrl_box_req.count = 1
+        self.sliding_platform_curr_req = ReadRegister.Request()
+        self.sliding_platform_curr_req.address = 5101
+        self.sliding_platform_curr_req.count = 14
+        self.sliding_platform_cmd_req = ReadRegister.Request()
+        self.sliding_platform_cmd_req.address = 5001
+        self.sliding_platform_cmd_req.count = 14
+        self.sliding_platform_ready_req = ReadRegister.Request()
+        self.sliding_platform_ready_req.address = 5301
+        self.sliding_platform_ready_req.count = 14
+        self.elevator_req = ReadRegister.Request()
+        self.elevator_req.address = 5030
+        self.elevator_req.count = 1
+
         # Modbus TCP Client
         self.cli = None
 
@@ -61,10 +78,10 @@ class PlcComm(Node):
         # Timers
         self.connection_timer = self.create_timer(0.1, self.connection_cb, callback_group=normal_timer_cbg)
         self.status_timer = self.create_timer(1.0, self.status_cb, callback_group=normal_timer_cbg)
-        self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
-        self.sliding_platform_curr_timer = self.create_timer(0.25, self.sliding_platform_curr_cb, callback_group=read_timer_cbg)
-        self.sliding_platform_cmd_timer = self.create_timer(0.5, self.sliding_platform_cmd_cb, callback_group=read_timer_cbg)
-        self.sliding_platform_ready_timer = self.create_timer(0.25, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
+        self.releasing_mtrl_box_timer = self.create_timer(0.2, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_curr_timer = self.create_timer(0.5, self.sliding_platform_curr_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_cmd_timer = self.create_timer(1.0, self.sliding_platform_cmd_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_ready_timer = self.create_timer(0.125, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
         self.elevator_timer = self.create_timer(1.0, self.elevator_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
@@ -106,10 +123,7 @@ class PlcComm(Node):
         self.get_logger().debug(f"Connected: {is_connected}")
 
     async def releasing_mtrl_box_cb(self):
-        req = ReadRegister.Request()
-        req.address = 5500
-        req.count = 1
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.releasing_mtrl_box_req), self.loop)
         try:
             result = future.result()
             if not isinstance(result, ReadHoldingRegistersResponse):
@@ -120,15 +134,12 @@ class PlcComm(Node):
             msg = Bool()
             msg.data = bool(data[0] == 1)
             self.releasing_mtrl_box_pub.publish(msg)
-            self.get_logger().debug(f"[Releasing State]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().info(f"[Releasing State]\tRead Registers, address: {self.releasing_mtrl_box_req.address}, count: {self.releasing_mtrl_box_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
     async def sliding_platform_curr_cb(self):
-        req = ReadRegister.Request()
-        req.address = 5101
-        req.count = 14
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.sliding_platform_curr_req), self.loop)
         try:
             result = future.result()
             if not isinstance(result, ReadHoldingRegistersResponse):
@@ -139,15 +150,12 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_curr_pub.publish(msg)
-            self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, address: {self.sliding_platform_curr_req.address}, count: {self.sliding_platform_curr_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
     async def sliding_platform_cmd_cb(self):
-        req = ReadRegister.Request()
-        req.address = 5001
-        req.count = 14
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.sliding_platform_cmd_req), self.loop)
         try:
             result = future.result()
             if not isinstance(result, ReadHoldingRegistersResponse):
@@ -158,15 +166,12 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_cmd_pub.publish(msg)
-            self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, address: {self.sliding_platform_cmd_req.address}, count: {self.sliding_platform_cmd_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
     async def sliding_platform_ready_cb(self):
-        req = ReadRegister.Request()
-        req.address = 5301
-        req.count = 14
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.sliding_platform_ready_req), self.loop)
         try:
             result = future.result()
             if not isinstance(result, ReadHoldingRegistersResponse):
@@ -177,15 +182,12 @@ class PlcComm(Node):
             msg = UInt8MultiArray()
             msg.data = data
             self.sliding_platform_ready_pub.publish(msg)
-            self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, address: {self.sliding_platform_ready_req.address}, count: {self.sliding_platform_ready_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
     async def elevator_cb(self):
-        req = ReadRegister.Request()
-        req.address = 5030
-        req.count = 1
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.elevator_req), self.loop)
         try:
             result = future.result()
             if not isinstance(result, ReadHoldingRegistersResponse):
@@ -196,7 +198,7 @@ class PlcComm(Node):
             msg = Bool()
             msg.data = bool(data[0] == 1)
             self.elevator_pub.publish(msg)
-            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {req.address}, count: {req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {self.elevator_req.address}, count: {self.elevator_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
