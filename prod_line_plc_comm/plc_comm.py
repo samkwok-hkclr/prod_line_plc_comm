@@ -196,7 +196,7 @@ class PlcComm(Node):
                 raise Exception("result is Error")
             data = result.registers
             msg = Bool()
-            msg.data = bool(data[0] == 1)
+            msg.data = data[0] == 1
             self.elevator_pub.publish(msg)
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {self.elevator_req.address}, count: {self.elevator_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
