@@ -60,7 +60,7 @@ class PlcComm(Node):
         # Publishers
         self.status_pub = self.create_publisher(Bool, 'plc_connection', 10)
         self.releasing_mtrl_box_pub = self.create_publisher(Bool, 'releasing_material_box', 10)
-        self.sliding_platform_curr_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_current', 10)
+        self.sliding_platform_curr_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_curr', 10)
         self.sliding_platform_cmd_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_cmd', 10)
         self.sliding_platform_ready_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_ready', 10)
         self.elevator_pub = self.create_publisher(Bool, 'elevator', 10)
@@ -82,11 +82,11 @@ class PlcComm(Node):
         # Timers
         self.connection_timer = self.create_timer(1.0, self.connection_cb, callback_group=normal_timer_cbg)
         self.status_timer = self.create_timer(1.0, self.status_cb, callback_group=normal_timer_cbg)
-        self.releasing_mtrl_box_timer = self.create_timer(0.5, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
+        self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
         self.sliding_platform_curr_timer = self.create_timer(1.0, self.sliding_platform_curr_cb, callback_group=read_timer_cbg)
         self.sliding_platform_cmd_timer = self.create_timer(1.0, self.sliding_platform_cmd_cb, callback_group=read_timer_cbg)
         self.sliding_platform_ready_timer = self.create_timer(0.125, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
-        self.elevator_timer = self.create_timer(0.5, self.elevator_cb, callback_group=read_timer_cbg)
+        self.elevator_timer = self.create_timer(1.0, self.elevator_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
 
@@ -232,7 +232,7 @@ class PlcComm(Node):
             msg.data = data[0] == 1
             self.elevator_pub.publish(msg)
 
-            self.get_logger().info(f"[Elevator]\t\t\tRead Registers, address: {self.elevator_req.address}, count: {self.elevator_req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {self.elevator_req.address}, count: {self.elevator_req.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
