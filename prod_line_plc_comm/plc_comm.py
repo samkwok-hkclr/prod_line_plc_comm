@@ -264,7 +264,7 @@ class PlcComm(Node):
             return
 
         future = asyncio.run_coroutine_threadsafe(self.async_write_registers(req), self.loop)
-        self.get_logger().info(f"Received a write register request: {req.address}")
+        self.get_logger().info(f"Received a write register request: {req.address}, values: {req.values}")
         try:
             result = future.result()
 
