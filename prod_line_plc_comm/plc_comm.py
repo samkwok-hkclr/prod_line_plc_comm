@@ -1,10 +1,11 @@
 import sys
 import asyncio
+from asyncio import run_coroutine_threadsafe
 from threading import Thread, Lock
 import rclpy
 
 from rclpy.node import Node
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 
 from pymodbus.client import AsyncModbusTcpClient as Client
@@ -13,7 +14,7 @@ from pymodbus.pdu.register_message import ReadHoldingRegistersResponse, WriteMul
 from std_msgs.msg import Bool, UInt8, UInt8MultiArray
 from smdps_msgs.srv import ReadRegister, WriteRegister
 
-from .req_temp import RequestTemplate
+from .req_temp import RequestTemplate as ReqTemp
 
 class PlcComm(Node):
     def __init__(self):
@@ -30,10 +31,12 @@ class PlcComm(Node):
         self.loop = asyncio.new_event_loop()
         self.loop_thread = Thread(target=self.run_loop, daemon=True)
         self.loop_thread.start()
+
+        # Mutex
         self.mutex = Lock()
 
         # Callback groups
-        srv_ser_read_cbg = MutuallyExclusiveCallbackGroup()
+        srv_ser_read_cbg = ReentrantCallbackGroup()
         srv_ser_write_cbg = MutuallyExclusiveCallbackGroup()
         normal_timer_cbg = MutuallyExclusiveCallbackGroup()
         read_timer_cbg = MutuallyExclusiveCallbackGroup()
@@ -68,9 +71,9 @@ class PlcComm(Node):
         self.releasing_mtrl_box_timer = self.create_timer(1.0, self.releasing_mtrl_box_cb, callback_group=read_timer_cbg)
         self.sliding_platform_curr_timer = self.create_timer(0.5, self.sliding_platform_curr_cb, callback_group=read_timer_cbg)
         self.sliding_platform_cmd_timer = self.create_timer(0.5, self.sliding_platform_cmd_cb, callback_group=read_timer_cbg)
-        self.sliding_platform_ready_timer = self.create_timer(0.2, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
+        self.sliding_platform_ready_timer = self.create_timer(0.25, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
         self.elevator_timer = self.create_timer(0.5, self.elevator_cb, callback_group=read_timer_cbg)
-        self.vision_block_timer = self.create_timer(0.5, self.vision_block_cb, callback_group=read_timer_cbg)
+        self.vision_block_timer = self.create_timer(0.25, self.vision_block_cb, callback_group=read_timer_cbg)
         self.con_mtrl_box_timer = self.create_timer(1.0, self.con_mtrl_box_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
@@ -95,7 +98,7 @@ class PlcComm(Node):
     async def connection_cb(self):
         if not self.cli or not self.cli.connected:
             self.get_logger().info(f"Try to connect to {self.ip}:{self.port}")
-            future = asyncio.run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
+            future = run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
             try:
                 self.get_logger().info(f"Waiting the connection result {self.ip}:{self.port}")
                 future.result()
@@ -111,12 +114,12 @@ class PlcComm(Node):
         self.status_pub.publish(msg)
         self.get_logger().debug(f"Connected: {is_connected}")
 
-    async def releasing_mtrl_box_cb(self):
+    def releasing_mtrl_box_cb(self):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.RELEASING_MTRL_BOX_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.RELEASING_MTRL_BOX_REQ), 
             self.loop
         )
         try:
@@ -133,17 +136,17 @@ class PlcComm(Node):
             self.releasing_mtrl_box_pub.publish(msg)
 
             self.get_logger().debug(f"[Releasing State]\tRead Registers, "
-                                    f"address: {RequestTemplate.RELEASING_MTRL_BOX_REQ.address}, "
-                                    f"count: {RequestTemplate.RELEASING_MTRL_BOX_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {ReqTemp.RELEASING_MTRL_BOX_REQ.address}, "
+                                    f"count: {ReqTemp.RELEASING_MTRL_BOX_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def sliding_platform_curr_cb(self):
+    def sliding_platform_curr_cb(self):
         if not self.cli or not self.cli.connected:
             return
             
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.SLIDING_PLATFORM_CURR_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.SLIDING_PLATFORM_CURR_REQ), 
             self.loop
         )
         try:
@@ -160,17 +163,17 @@ class PlcComm(Node):
             self.sliding_platform_curr_pub.publish(msg)
 
             self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, "
-                                    f"address: {RequestTemplate.SLIDING_PLATFORM_CURR_REQ.address}, "
-                                    f"count: {RequestTemplate.SLIDING_PLATFORM_CURR_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {ReqTemp.SLIDING_PLATFORM_CURR_REQ.address}, "
+                                    f"count: {ReqTemp.SLIDING_PLATFORM_CURR_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def sliding_platform_cmd_cb(self):
+    def sliding_platform_cmd_cb(self):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.SLIDING_PLATFORM_CMD_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.SLIDING_PLATFORM_CMD_REQ), 
             self.loop
         )
         try:
@@ -187,17 +190,17 @@ class PlcComm(Node):
             self.sliding_platform_cmd_pub.publish(msg)
 
             self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, "
-                                    f"address: {RequestTemplate.SLIDING_PLATFORM_CMD_REQ.address}, "
-                                    f"count: {RequestTemplate.SLIDING_PLATFORM_CMD_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {ReqTemp.SLIDING_PLATFORM_CMD_REQ.address}, "
+                                    f"count: {ReqTemp.SLIDING_PLATFORM_CMD_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def sliding_platform_ready_cb(self):
+    def sliding_platform_ready_cb(self):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.SLIDING_PLATFORM_READY_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.SLIDING_PLATFORM_READY_REQ), 
             self.loop
         )
         try:
@@ -214,17 +217,17 @@ class PlcComm(Node):
             self.sliding_platform_ready_pub.publish(msg)
 
             self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, "
-                                    f"address: {RequestTemplate.SLIDING_PLATFORM_READY_REQ.address}, "
-                                    f"count: {RequestTemplate.SLIDING_PLATFORM_READY_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {ReqTemp.SLIDING_PLATFORM_READY_REQ.address}, "
+                                    f"count: {ReqTemp.SLIDING_PLATFORM_READY_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def elevator_cb(self):
+    def elevator_cb(self):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.ELEVATOR_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.ELEVATOR_REQ), 
             self.loop
         )
         try:
@@ -240,17 +243,17 @@ class PlcComm(Node):
             self.elevator_pub.publish(msg)
 
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
-                                    f"address: {RequestTemplate.ELEVATOR_REQ.address}, "
-                                    f"count: {RequestTemplate.ELEVATOR_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {ReqTemp.ELEVATOR_REQ.address}, "
+                                    f"count: {ReqTemp.ELEVATOR_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def vision_block_cb(self):
+    def vision_block_cb(self):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.VISION_BLOCK_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.VISION_BLOCK_REQ), 
             self.loop
         )
         try:
@@ -265,18 +268,18 @@ class PlcComm(Node):
             msg = Bool(data=data[0] == 1)
             self.vision_block_pub.publish(msg)
 
-            self.get_logger().info(f"[Elevator]\t\t\tRead Registers, "
-                                    f"address: {RequestTemplate.VISION_BLOCK_REQ.address}, "
-                                    f"count: {RequestTemplate.ELEVATOR_VISION_BLOCK_REQREQ.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
+                                    f"address: {ReqTemp.VISION_BLOCK_REQ.address}, "
+                                    f"count: {ReqTemp.VISION_BLOCK_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    async def con_mtrl_box_cb(self):
+    def con_mtrl_box_cb(self):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.async_read_registers(RequestTemplate.CONTAINER_AMOUNT_REQ), 
+        future = run_coroutine_threadsafe(
+            self.async_read_registers(ReqTemp.CONTAINER_AMOUNT_REQ), 
             self.loop
         )
         try:
@@ -291,9 +294,9 @@ class PlcComm(Node):
             msg = UInt8(data=data[0])
             self.con_mtrl_box_pub.publish(msg)
 
-            self.get_logger().info(f"[Conatiner Material Box]\t\t\tRead Registers, "
-                                    f"address: {RequestTemplate.CONTAINER_AMOUNT_REQ.address}, "
-                                    f"count: {RequestTemplate.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Conatiner Material Box]\t\t\tRead Registers, "
+                                    f"address: {ReqTemp.CONTAINER_AMOUNT_REQ.address}, "
+                                    f"count: {ReqTemp.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -301,7 +304,7 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
+        future = run_coroutine_threadsafe(
             self.async_read_registers(req), 
             self.loop
         )
@@ -327,7 +330,7 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(
+        future = run_coroutine_threadsafe(
             self.async_write_registers(req), 
             self.loop
         )
