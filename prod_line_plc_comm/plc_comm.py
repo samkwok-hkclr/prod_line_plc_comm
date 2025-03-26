@@ -10,8 +10,10 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from pymodbus.client import AsyncModbusTcpClient as Client
 from pymodbus.pdu.register_message import ReadHoldingRegistersResponse, WriteMultipleRegistersResponse
 
-from std_msgs.msg import Bool, UInt8MultiArray
+from std_msgs.msg import Bool, UInt8, UInt8MultiArray
 from smdps_msgs.srv import ReadRegister, WriteRegister
+
+from .req_temp import RequestTemplate
 
 class PlcComm(Node):
     def __init__(self):
@@ -21,27 +23,6 @@ class PlcComm(Node):
 
         self.ip = self.get_parameter("ip").value
         self.port = self.get_parameter("port").value
-
-        # Requests
-        self.releasing_mtrl_box_req = ReadRegister.Request()
-        self.releasing_mtrl_box_req.address = 5500
-        self.releasing_mtrl_box_req.count = 1
-
-        self.sliding_platform_curr_req = ReadRegister.Request()
-        self.sliding_platform_curr_req.address = 5101
-        self.sliding_platform_curr_req.count = 14
-
-        self.sliding_platform_cmd_req = ReadRegister.Request()
-        self.sliding_platform_cmd_req.address = 5001
-        self.sliding_platform_cmd_req.count = 14
-
-        self.sliding_platform_ready_req = ReadRegister.Request()
-        self.sliding_platform_ready_req.address = 5301
-        self.sliding_platform_ready_req.count = 14
-        
-        self.elevator_req = ReadRegister.Request()
-        self.elevator_req.address = 5030
-        self.elevator_req.count = 1
 
         # Modbus TCP Client
         self.cli = None
@@ -64,6 +45,8 @@ class PlcComm(Node):
         self.sliding_platform_cmd_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_cmd', 10)
         self.sliding_platform_ready_pub = self.create_publisher(UInt8MultiArray, 'sliding_platform_ready', 10)
         self.elevator_pub = self.create_publisher(Bool, 'elevator', 10)
+        self.vision_block_pub = self.create_publisher(Bool, 'vision_block', 10)
+        self.con_mtrl_box_pub = self.create_publisher(UInt8, 'container_material_box', 10)
 
         # Service Servers
         self.read_srv = self.create_service(
@@ -87,6 +70,8 @@ class PlcComm(Node):
         self.sliding_platform_cmd_timer = self.create_timer(0.5, self.sliding_platform_cmd_cb, callback_group=read_timer_cbg)
         self.sliding_platform_ready_timer = self.create_timer(0.2, self.sliding_platform_ready_cb, callback_group=read_timer_cbg)
         self.elevator_timer = self.create_timer(0.5, self.elevator_cb, callback_group=read_timer_cbg)
+        self.vision_block_timer = self.create_timer(0.5, self.vision_block_cb, callback_group=read_timer_cbg)
+        self.con_mtrl_box_timer = self.create_timer(1.0, self.con_mtrl_box_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
 
@@ -130,7 +115,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.releasing_mtrl_box_req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.RELEASING_MTRL_BOX_REQ), 
+            self.loop
+        )
         try:
             result = future.result()
 
@@ -140,11 +128,13 @@ class PlcComm(Node):
                 raise Exception("result is Error")
 
             data = result.registers
-            msg = Bool()
-            msg.data = bool(data[0] == 1)
+
+            msg = Bool(data=data[0] == 1)
             self.releasing_mtrl_box_pub.publish(msg)
 
-            self.get_logger().debug(f"[Releasing State]\tRead Registers, address: {self.releasing_mtrl_box_req.address}, count: {self.releasing_mtrl_box_req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Releasing State]\tRead Registers, "
+                                    f"address: {RequestTemplate.RELEASING_MTRL_BOX_REQ.address}, "
+                                    f"count: {RequestTemplate.RELEASING_MTRL_BOX_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -152,7 +142,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
             
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.sliding_platform_curr_req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.SLIDING_PLATFORM_CURR_REQ), 
+            self.loop
+        )
         try:
             result = future.result()
 
@@ -161,12 +154,14 @@ class PlcComm(Node):
             if result.isError():
                 raise Exception("result is Error")
 
-            data = result.registers
-            msg = UInt8MultiArray()
-            msg.data = data
+            data=result.registers
+
+            msg = UInt8MultiArray(data=data)
             self.sliding_platform_curr_pub.publish(msg)
 
-            self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, address: {self.sliding_platform_curr_req.address}, count: {self.sliding_platform_curr_req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, "
+                                    f"address: {RequestTemplate.SLIDING_PLATFORM_CURR_REQ.address}, "
+                                    f"count: {RequestTemplate.SLIDING_PLATFORM_CURR_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -174,7 +169,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.sliding_platform_cmd_req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.SLIDING_PLATFORM_CMD_REQ), 
+            self.loop
+        )
         try:
             result = future.result()
 
@@ -184,11 +182,13 @@ class PlcComm(Node):
                 raise Exception("result is Error")
 
             data = result.registers
-            msg = UInt8MultiArray()
-            msg.data = data
+
+            msg = UInt8MultiArray(data=data)
             self.sliding_platform_cmd_pub.publish(msg)
 
-            self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, address: {self.sliding_platform_cmd_req.address}, count: {self.sliding_platform_cmd_req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, "
+                                    f"address: {RequestTemplate.SLIDING_PLATFORM_CMD_REQ.address}, "
+                                    f"count: {RequestTemplate.SLIDING_PLATFORM_CMD_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -196,7 +196,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.sliding_platform_ready_req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.SLIDING_PLATFORM_READY_REQ), 
+            self.loop
+        )
         try:
             result = future.result()
 
@@ -206,11 +209,13 @@ class PlcComm(Node):
                 raise Exception("result is Error")
 
             data = result.registers
-            msg = UInt8MultiArray()
-            msg.data = data
+
+            msg = UInt8MultiArray(data=data)
             self.sliding_platform_ready_pub.publish(msg)
 
-            self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, address: {self.sliding_platform_ready_req.address}, count: {self.sliding_platform_ready_req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, "
+                                    f"address: {RequestTemplate.SLIDING_PLATFORM_READY_REQ.address}, "
+                                    f"count: {RequestTemplate.SLIDING_PLATFORM_READY_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -218,7 +223,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(self.elevator_req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.ELEVATOR_REQ), 
+            self.loop
+        )
         try:
             result = future.result()
 
@@ -228,11 +236,64 @@ class PlcComm(Node):
                 raise Exception("result is Error")
 
             data = result.registers
-            msg = Bool()
-            msg.data = data[0] == 1
+            msg = Bool(data=data[0] == 1)
             self.elevator_pub.publish(msg)
 
-            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, address: {self.elevator_req.address}, count: {self.elevator_req.count}, values: [{', '.join(map(str, data))}]")
+            self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
+                                    f"address: {RequestTemplate.ELEVATOR_REQ.address}, "
+                                    f"count: {RequestTemplate.ELEVATOR_REQ.count}, values: [{', '.join(map(str, data))}]")
+        except Exception as e:
+            self.get_logger().error(f"Exception: {e}")
+
+    async def vision_block_cb(self):
+        if not self.cli or not self.cli.connected:
+            return
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.VISION_BLOCK_REQ), 
+            self.loop
+        )
+        try:
+            result = future.result()
+
+            if not isinstance(result, ReadHoldingRegistersResponse):
+                raise Exception("result is not ReadHoldingRegistersResponse")
+            if result.isError():
+                raise Exception("result is Error")
+
+            data = result.registers
+            msg = Bool(data=data[0] == 1)
+            self.vision_block_pub.publish(msg)
+
+            self.get_logger().info(f"[Elevator]\t\t\tRead Registers, "
+                                    f"address: {RequestTemplate.VISION_BLOCK_REQ.address}, "
+                                    f"count: {RequestTemplate.ELEVATOR_VISION_BLOCK_REQREQ.count}, values: [{', '.join(map(str, data))}]")
+        except Exception as e:
+            self.get_logger().error(f"Exception: {e}")
+
+    async def con_mtrl_box_cb(self):
+        if not self.cli or not self.cli.connected:
+            return
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(RequestTemplate.CONTAINER_AMOUNT_REQ), 
+            self.loop
+        )
+        try:
+            result = future.result()
+
+            if not isinstance(result, ReadHoldingRegistersResponse):
+                raise Exception("result is not ReadHoldingRegistersResponse")
+            if result.isError():
+                raise Exception("result is Error")
+
+            data = result.registers
+            msg = UInt8(data=data[0])
+            self.con_mtrl_box_pub.publish(msg)
+
+            self.get_logger().info(f"[Conatiner Material Box]\t\t\tRead Registers, "
+                                    f"address: {RequestTemplate.CONTAINER_AMOUNT_REQ.address}, "
+                                    f"count: {RequestTemplate.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -240,7 +301,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_read_registers(req), 
+            self.loop
+        )
         self.get_logger().info(f"Received a read register request: {req.address}")
         try:
             result = future.result()
@@ -263,7 +327,10 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
 
-        future = asyncio.run_coroutine_threadsafe(self.async_write_registers(req), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.async_write_registers(req), 
+            self.loop
+        )
         self.get_logger().info(f"Received a write register request: {req.address}, values: {req.values}")
         try:
             result = future.result()
