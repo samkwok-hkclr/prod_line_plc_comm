@@ -38,4 +38,9 @@ class RequestTemplate:
         address = 5410,
         count = 1  
     )
+   
+    LOCATION_SENSOR_REQ: Final[ReadRegister.Request] = ReadRegister.Request(
+        address = 7900,
+        count = 77
+    )
     

@@ -2,6 +2,8 @@ import sys
 import asyncio
 from asyncio import run_coroutine_threadsafe
 from threading import Thread, Lock
+from typing import Optional
+
 import rclpy
 
 from rclpy.node import Node
@@ -28,6 +30,7 @@ class PlcComm(Node):
         # Modbus TCP Client
         self.cli = None
 
+        # asyncio event loop
         self.loop = asyncio.new_event_loop()
         self.loop_thread = Thread(target=self.run_loop, daemon=True)
         self.loop_thread.start()
@@ -50,6 +53,7 @@ class PlcComm(Node):
         self.elevator_pub = self.create_publisher(Bool, 'elevator', 10)
         self.vision_block_pub = self.create_publisher(Bool, 'vision_block', 10)
         self.con_mtrl_box_pub = self.create_publisher(UInt8, 'container_material_box', 10)
+        self.loc_sensor_pub = self.create_publisher(UInt8MultiArray, 'location_sensor', 10)
 
         # Service Servers
         self.read_srv = self.create_service(
@@ -75,6 +79,7 @@ class PlcComm(Node):
         self.elevator_timer = self.create_timer(0.5, self.elevator_cb, callback_group=read_timer_cbg)
         self.vision_block_timer = self.create_timer(0.25, self.vision_block_cb, callback_group=read_timer_cbg)
         self.con_mtrl_box_timer = self.create_timer(1.0, self.con_mtrl_box_cb, callback_group=read_timer_cbg)
+        self.loc_sensor_timer = self.create_timer(0.25, self.loc_senser_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
 
@@ -95,7 +100,7 @@ class PlcComm(Node):
             self.get_logger().error("Failed to connect to Modbus server")
 
     # Timer Callbacks
-    async def connection_cb(self):
+    async def connection_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             self.get_logger().info(f"Try to connect to {self.ip}:{self.port}")
             future = run_coroutine_threadsafe(self.create_and_connect_client(), self.loop)
@@ -107,33 +112,22 @@ class PlcComm(Node):
         else:
             self.get_logger().debug(f"Already connected to {self.ip}:{self.port}")
 
-    def status_cb(self):
+    def status_cb(self) -> None:
         is_connected = bool(self.cli and self.cli.connected)
         msg = Bool()
         msg.data = is_connected
         self.status_pub.publish(msg)
         self.get_logger().debug(f"Connected: {is_connected}")
 
-    def releasing_mtrl_box_cb(self):
+    def releasing_mtrl_box_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
 
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.RELEASING_MTRL_BOX_REQ), 
-            self.loop
-        )
         try:
-            result = future.result()
-
-            if not isinstance(result, ReadHoldingRegistersResponse):
-                raise Exception("result is not ReadHoldingRegistersResponse")
-            if result.isError():
-                raise Exception("result is Error")
+            result = self._execute_read_action(ReqTemp.RELEASING_MTRL_BOX_REQ)
 
             data = result.registers
-
-            msg = Bool(data=data[0] == 1)
-            self.releasing_mtrl_box_pub.publish(msg)
+            self.releasing_mtrl_box_pub.publish(Bool(data=data[0] == 1))
 
             self.get_logger().debug(f"[Releasing State]\tRead Registers, "
                                     f"address: {ReqTemp.RELEASING_MTRL_BOX_REQ.address}, "
@@ -141,26 +135,15 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def sliding_platform_curr_cb(self):
+    def sliding_platform_curr_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
-            
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.SLIDING_PLATFORM_CURR_REQ), 
-            self.loop
-        )
-        try:
-            result = future.result()
 
-            if not isinstance(result, ReadHoldingRegistersResponse):
-                raise Exception("result is not ReadHoldingRegistersResponse")
-            if result.isError():
-                raise Exception("result is Error")
+        try:
+            result = self._execute_read_action(ReqTemp.SLIDING_PLATFORM_CURR_REQ)
 
             data=result.registers
-
-            msg = UInt8MultiArray(data=data)
-            self.sliding_platform_curr_pub.publish(msg)
+            self.sliding_platform_curr_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, "
                                     f"address: {ReqTemp.SLIDING_PLATFORM_CURR_REQ.address}, "
@@ -168,26 +151,15 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def sliding_platform_cmd_cb(self):
+    def sliding_platform_cmd_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
 
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.SLIDING_PLATFORM_CMD_REQ), 
-            self.loop
-        )
         try:
-            result = future.result()
-
-            if not isinstance(result, ReadHoldingRegistersResponse):
-                raise Exception("result is not ReadHoldingRegistersResponse")
-            if result.isError():
-                raise Exception("result is Error")
-
+            result = self._execute_read_action(ReqTemp.SLIDING_PLATFORM_CMD_REQ)
+            
             data = result.registers
-
-            msg = UInt8MultiArray(data=data)
-            self.sliding_platform_cmd_pub.publish(msg)
+            self.sliding_platform_cmd_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, "
                                     f"address: {ReqTemp.SLIDING_PLATFORM_CMD_REQ.address}, "
@@ -195,26 +167,15 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def sliding_platform_ready_cb(self):
+    def sliding_platform_ready_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
 
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.SLIDING_PLATFORM_READY_REQ), 
-            self.loop
-        )
         try:
-            result = future.result()
-
-            if not isinstance(result, ReadHoldingRegistersResponse):
-                raise Exception("result is not ReadHoldingRegistersResponse")
-            if result.isError():
-                raise Exception("result is Error")
+            result = self._execute_read_action(ReqTemp.SLIDING_PLATFORM_READY_REQ)
 
             data = result.registers
-
-            msg = UInt8MultiArray(data=data)
-            self.sliding_platform_ready_pub.publish(msg)
+            self.sliding_platform_ready_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, "
                                     f"address: {ReqTemp.SLIDING_PLATFORM_READY_REQ.address}, "
@@ -222,25 +183,15 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def elevator_cb(self):
+    def elevator_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
 
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.ELEVATOR_REQ), 
-            self.loop
-        )
         try:
-            result = future.result()
-
-            if not isinstance(result, ReadHoldingRegistersResponse):
-                raise Exception("result is not ReadHoldingRegistersResponse")
-            if result.isError():
-                raise Exception("result is Error")
+            result = self._execute_read_action(ReqTemp.ELEVATOR_REQ)
 
             data = result.registers
-            msg = Bool(data=data[0] == 1)
-            self.elevator_pub.publish(msg)
+            self.elevator_pub.publish(Bool(data=data[0] == 1))
 
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
                                     f"address: {ReqTemp.ELEVATOR_REQ.address}, "
@@ -248,25 +199,15 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def vision_block_cb(self):
+    def vision_block_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
 
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.VISION_BLOCK_REQ), 
-            self.loop
-        )
         try:
-            result = future.result()
-
-            if not isinstance(result, ReadHoldingRegistersResponse):
-                raise Exception("result is not ReadHoldingRegistersResponse")
-            if result.isError():
-                raise Exception("result is Error")
+            result = self._execute_read_action(ReqTemp.VISION_BLOCK_REQ)
 
             data = result.registers
-            msg = Bool(data=data[0] == 1)
-            self.vision_block_pub.publish(msg)
+            self.vision_block_pub.publish(Bool(data=data[0] == 1))
 
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
                                     f"address: {ReqTemp.VISION_BLOCK_REQ.address}, "
@@ -274,14 +215,40 @@ class PlcComm(Node):
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
-    def con_mtrl_box_cb(self):
+    def con_mtrl_box_cb(self) -> None:
         if not self.cli or not self.cli.connected:
             return
 
-        future = run_coroutine_threadsafe(
-            self.async_read_registers(ReqTemp.CONTAINER_AMOUNT_REQ), 
-            self.loop
-        )
+        try:
+            result = self._execute_read_action(ReqTemp.CONTAINER_AMOUNT_REQ)
+
+            data = result.registers
+            self.con_mtrl_box_pub.publish(UInt8(data=data[0]))
+
+            self.get_logger().debug(f"[Conatiner Material Box]\tRead Registers, "
+                                    f"address: {ReqTemp.CONTAINER_AMOUNT_REQ.address}, "
+                                    f"count: {ReqTemp.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
+        except Exception as e:
+            self.get_logger().error(f"Exception: {e}")
+
+    def loc_senser_cb(self) -> None:
+        if not self.cli or not self.cli.connected:
+            return
+        try:
+            result = self._execute_read_action(ReqTemp.LOCATION_SENSOR_REQ)
+
+            data = result.registers
+            self.loc_sensor_pub.publish(UInt8MultiArray(data=data))
+
+            self.get_logger().debug(f"[Conatiner Material Box]\tRead Registers, "
+                                    f"address: {ReqTemp.LOCATION_SENSOR_REQ.address}, "
+                                    f"count: {ReqTemp.LOCATION_SENSOR_REQ.count}, values: [{', '.join(map(str, data))}]")
+        except Exception as e:
+            self.get_logger().error(f"Exception: {e}")
+        
+    def _execute_read_action(self, req: ReadRegister.Request) -> Optional[ReadHoldingRegistersResponse]:
+        """Execute a register write operation and return success status."""
+        future = run_coroutine_threadsafe(self.async_read_registers(req), self.loop)
         try:
             result = future.result()
 
@@ -289,16 +256,11 @@ class PlcComm(Node):
                 raise Exception("result is not ReadHoldingRegistersResponse")
             if result.isError():
                 raise Exception("result is Error")
-
-            data = result.registers
-            msg = UInt8(data=data[0])
-            self.con_mtrl_box_pub.publish(msg)
-
-            self.get_logger().debug(f"[Conatiner Material Box]\t\t\tRead Registers, "
-                                    f"address: {ReqTemp.CONTAINER_AMOUNT_REQ.address}, "
-                                    f"count: {ReqTemp.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
+            
+            return result
         except Exception as e:
-            self.get_logger().error(f"Exception: {e}")
+            self.get_logger().error(f"Movement execution failed: {str(e)}")
+            return None
 
     async def read_registers_cb(self, req, res):
         if not self.cli or not self.cli.connected:
