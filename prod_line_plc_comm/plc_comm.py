@@ -79,7 +79,7 @@ class PlcComm(Node):
         self.elevator_timer = self.create_timer(0.5, self.elevator_cb, callback_group=read_timer_cbg)
         self.vision_block_timer = self.create_timer(0.25, self.vision_block_cb, callback_group=read_timer_cbg)
         self.con_mtrl_box_timer = self.create_timer(1.0, self.con_mtrl_box_cb, callback_group=read_timer_cbg)
-        self.loc_sensor_timer = self.create_timer(0.2, self.loc_senser_cb, callback_group=read_timer_cbg)
+        self.loc_sensor_timer = self.create_timer(0.125, self.loc_senser_cb, callback_group=read_timer_cbg)
 
         self.get_logger().info("PLC Modbus TCP Client Node is initialized successfully")
 
