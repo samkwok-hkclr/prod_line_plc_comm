@@ -14,7 +14,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'params'), glob('params/*.yaml')),
     ],
-    install_requires=['setuptools', 'pymodbus'],
+    install_requires=['setuptools', 'pymodbus==3.8.6'],
     zip_safe=True,
     maintainer='mskwok',
     maintainer_email='mskwok@hkclr.hk',
