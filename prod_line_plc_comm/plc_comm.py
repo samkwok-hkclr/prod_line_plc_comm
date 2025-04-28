@@ -38,6 +38,9 @@ class PlcComm(Node):
         # Mutex
         self.mutex = Lock()
 
+        # Constant
+        self.req_temp = ReqTemp()
+
         # Callback groups
         srv_ser_read_cbg = ReentrantCallbackGroup()
         srv_ser_write_cbg = MutuallyExclusiveCallbackGroup()
@@ -124,14 +127,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.RELEASING_MTRL_BOX_REQ)
+            result = self._execute_read_action(self.req_temp.RELEASING_MTRL_BOX_REQ)
 
             data = result.registers
             self.releasing_mtrl_box_pub.publish(Bool(data=data[0] == 1))
 
             self.get_logger().debug(f"[Releasing State]\tRead Registers, "
-                                    f"address: {ReqTemp.RELEASING_MTRL_BOX_REQ.address}, "
-                                    f"count: {ReqTemp.RELEASING_MTRL_BOX_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.RELEASING_MTRL_BOX_REQ.address}, "
+                                    f"count: {self.req_temp.RELEASING_MTRL_BOX_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -140,14 +143,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.SLIDING_PLATFORM_CURR_REQ)
+            result = self._execute_read_action(self.req_temp.SLIDING_PLATFORM_CURR_REQ)
 
             data=result.registers
             self.sliding_platform_curr_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Current Sliding Platform]\tRead Registers, "
-                                    f"address: {ReqTemp.SLIDING_PLATFORM_CURR_REQ.address}, "
-                                    f"count: {ReqTemp.SLIDING_PLATFORM_CURR_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.SLIDING_PLATFORM_CURR_REQ.address}, "
+                                    f"count: {self.req_temp.SLIDING_PLATFORM_CURR_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -156,14 +159,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.SLIDING_PLATFORM_CMD_REQ)
+            result = self._execute_read_action(self.req_temp.SLIDING_PLATFORM_CMD_REQ)
             
             data = result.registers
             self.sliding_platform_cmd_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Sliding Platform Movemnet]\tRead Registers, "
-                                    f"address: {ReqTemp.SLIDING_PLATFORM_CMD_REQ.address}, "
-                                    f"count: {ReqTemp.SLIDING_PLATFORM_CMD_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.SLIDING_PLATFORM_CMD_REQ.address}, "
+                                    f"count: {self.req_temp.SLIDING_PLATFORM_CMD_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -172,14 +175,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.SLIDING_PLATFORM_READY_REQ)
+            result = self._execute_read_action(self.req_temp.SLIDING_PLATFORM_READY_REQ)
 
             data = result.registers
             self.sliding_platform_ready_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Sliding Platform Ready]\tRead Registers, "
-                                    f"address: {ReqTemp.SLIDING_PLATFORM_READY_REQ.address}, "
-                                    f"count: {ReqTemp.SLIDING_PLATFORM_READY_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.SLIDING_PLATFORM_READY_REQ.address}, "
+                                    f"count: {self.req_temp.SLIDING_PLATFORM_READY_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -188,14 +191,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.ELEVATOR_REQ)
+            result = self._execute_read_action(self.req_temp.ELEVATOR_REQ)
 
             data = result.registers
             self.elevator_pub.publish(Bool(data=data[0] == 1))
 
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
-                                    f"address: {ReqTemp.ELEVATOR_REQ.address}, "
-                                    f"count: {ReqTemp.ELEVATOR_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.ELEVATOR_REQ.address}, "
+                                    f"count: {self.req_temp.ELEVATOR_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -204,14 +207,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.VISION_BLOCK_REQ)
+            result = self._execute_read_action(self.req_temp.VISION_BLOCK_REQ)
 
             data = result.registers
             self.vision_block_pub.publish(Bool(data=data[0] == 1))
 
             self.get_logger().debug(f"[Elevator]\t\t\tRead Registers, "
-                                    f"address: {ReqTemp.VISION_BLOCK_REQ.address}, "
-                                    f"count: {ReqTemp.VISION_BLOCK_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.VISION_BLOCK_REQ.address}, "
+                                    f"count: {self.req_temp.VISION_BLOCK_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -220,14 +223,14 @@ class PlcComm(Node):
             return
 
         try:
-            result = self._execute_read_action(ReqTemp.CONTAINER_AMOUNT_REQ)
+            result = self._execute_read_action(self.req_temp.CONTAINER_AMOUNT_REQ)
 
             data = result.registers
             self.con_mtrl_box_pub.publish(UInt8(data=data[0]))
 
             self.get_logger().debug(f"[Conatiner Material Box]\tRead Registers, "
-                                    f"address: {ReqTemp.CONTAINER_AMOUNT_REQ.address}, "
-                                    f"count: {ReqTemp.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.CONTAINER_AMOUNT_REQ.address}, "
+                                    f"count: {self.req_temp.CONTAINER_AMOUNT_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
 
@@ -235,14 +238,14 @@ class PlcComm(Node):
         if not self.cli or not self.cli.connected:
             return
         try:
-            result = self._execute_read_action(ReqTemp.LOCATION_SENSOR_REQ)
+            result = self._execute_read_action(self.req_temp.LOCATION_SENSOR_REQ)
 
             data = result.registers
             self.loc_sensor_pub.publish(UInt8MultiArray(data=data))
 
             self.get_logger().debug(f"[Conatiner Material Box]\tRead Registers, "
-                                    f"address: {ReqTemp.LOCATION_SENSOR_REQ.address}, "
-                                    f"count: {ReqTemp.LOCATION_SENSOR_REQ.count}, values: [{', '.join(map(str, data))}]")
+                                    f"address: {self.req_temp.LOCATION_SENSOR_REQ.address}, "
+                                    f"count: {self.req_temp.LOCATION_SENSOR_REQ.count}, values: [{', '.join(map(str, data))}]")
         except Exception as e:
             self.get_logger().error(f"Exception: {e}")
         
